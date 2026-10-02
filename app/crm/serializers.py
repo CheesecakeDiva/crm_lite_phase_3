@@ -1,6 +1,6 @@
 from rest_framework import serializers
 from django.db import transaction
-from .models import Company, Storage, Supplier, Product, Supply, SupplyProduct
+from .models import Company, Storage, Supplier, Product, Supply, SupplyProduct, Sale, ProductSale
 
 
 class CompanySerializer(serializers.ModelSerializer):
@@ -111,4 +111,90 @@ class SupplyListSerializer(serializers.ModelSerializer):
         model = Supply
         fields = ['id', 'supplier', 'delivery_date']
 
+
+# === Итоговый этап ===
+
+class ProductSaleCreateSerializer(serializers.Serializer):
+    product = serializers.IntegerField()
+    quantity = serializers.IntegerField()
+
+    def validate_quantity(self, value):
+        if value <= 0:
+            raise serializers.ValidationError("Количество товара в продаже должно быть больше нуля.")
+        return value
+
+
+class ProductSaleListSerializer(serializers.ModelSerializer):
+    product = serializers.PrimaryKeyRelatedField(read_only=True)
+    product_title = serializers.CharField(source='product.title', read_only=True)
+
+    class Meta:
+        model = ProductSale
+        fields = ['product', 'product_title', 'quantity']
+
+
+class SaleCreateSerializer(serializers.ModelSerializer):
+    product_sales = ProductSaleCreateSerializer(many=True)
+
+    class Meta:
+        model = Sale
+        fields = ['id', 'buyer_name', 'sale_date', 'product_sales']
+
+    def create(self, validated_data):
+        buyer_name = validated_data['buyer_name']
+        sale_date = validated_data['sale_date']
+        product_sales_data = validated_data['product_sales']
+        user = self.context['request'].user
+
+        user_company = Company.objects.filter(owner=user).first()
+        if not user_company:
+            user_company = Company.objects.filter(id=getattr(user, 'company_id', None)).first()
+
+        if not user_company:
+            raise serializers.ValidationError("Вы не привязаны ни к одной компании.")
+
+        verified_items = []
+        for item in product_sales_data:
+            product_id = item['product']
+            qty = item['quantity']
+
+            try:
+                product = Product.objects.get(id=product_id, storage__company=user_company)
+            except Product.DoesNotExist:
+                raise serializers.ValidationError(f"Товар с id {product_id} не найден или принадлежит чужой компании.")
+
+            if product.quantity < qty:
+                raise serializers.ValidationError(
+                    f"Недостаточно товара '{product.title}' на складе. Доступно: {product.quantity}, запрошено: {qty}."
+                )
+
+            verified_items.append((product, qty))
+
+        with transaction.atomic():
+            sale = Sale.objects.create(buyer_name=buyer_name, sale_date=sale_date, company=user_company)
+
+            for product, qty in verified_items:
+                ProductSale.objects.create(sale=sale, product=product, quantity=qty)
+
+                product.quantity -= qty
+                product.save()
+
+        return sale
+
+    def to_representation(self, instance):
+        return SaleListSerializer(instance, context=self.context).data
+
+
+class SaleUpdateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Sale
+        fields = ['buyer_name', 'sale_date']
+
+
+class SaleListSerializer(serializers.ModelSerializer):
+    product_sales = ProductSaleListSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = Sale
+        fields = ['id', 'buyer_name', 'sale_date', 'product_sales']
 

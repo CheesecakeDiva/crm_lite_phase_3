@@ -10,6 +10,11 @@ from .serializers import (
     CompanySerializer, StorageSerializer, SupplierSerializer,
     ProductSerializer, SupplyCreateSerializer, SupplyListSerializer
 )
+from rest_framework.pagination import PageNumberPagination
+from django.db import transaction
+from .models import Sale, ProductSale
+from .serializers import SaleCreateSerializer, SaleUpdateSerializer, SaleListSerializer
+
 
 User = get_user_model()
 
@@ -165,5 +170,54 @@ class SupplyViewSet(viewsets.ModelViewSet):
             models.Q(supplier__company__owner=user) | models.Q(supplier__company_id=getattr(user, 'company_id', None))
         ).distinct()
 
+
+class StandardResultsSetPagination(PageNumberPagination):
+    page_size = 10
+    page_size_query_param = 'page_size'
+    max_page_size = 100
+
+
+class SaleViewSet(viewsets.ModelViewSet):
+    queryset = Sale.objects.all()
+    permission_classes = [permissions.IsAuthenticated, IsCompanyEmployee]
+    pagination_class = StandardResultsSetPagination
+
+    def get_serializer_class(self):
+        if self.action == 'create':
+            return SaleCreateSerializer
+        elif self.action in ['update', 'partial_update']:
+            return SaleUpdateSerializer
+        return SaleListSerializer
+
+    def get_queryset(self):
+        user = self.request.user
+        queryset = Sale.objects.filter(
+            models.Q(company__owner=user) | models.Q(company_id=getattr(user, 'company_id', None))
+        ).distinct()
+
+        start_date = self.request.query_params.get('start_date')
+        end_date = self.request.query_params.get('end_date')
+        if start_date:
+            queryset = queryset.filter(sale_date__gte=start_date)
+        if end_date:
+            queryset = queryset.filter(sale_date__lte=end_date)
+
+        return queryset
+
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+
+        with transaction.atomic():
+            product_sales = ProductSale.objects.filter(sale=instance)
+
+            for item in product_sales:
+                product = item.product
+                product.quantity += item.quantity
+                product.save()
+
+            instance.delete()
+
+        return Response({"message": "Продажа успешно удалена, товары возвращены на склад."},
+                        status=status.HTTP_204_NO_CONTENT)
 
 

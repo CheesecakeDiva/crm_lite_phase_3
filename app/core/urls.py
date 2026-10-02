@@ -2,7 +2,7 @@ from django.contrib import admin
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
-from crm.views import CompanyViewSet, StorageViewSet, SupplierViewSet, ProductViewSet, SupplyViewSet
+from crm.views import CompanyViewSet, StorageViewSet, SupplierViewSet, ProductViewSet, SupplyViewSet, SaleViewSet
 from authenticate.views import RegisterView
 
 from rest_framework import permissions
@@ -25,6 +25,8 @@ router.register(r'storages', StorageViewSet, basename='storage')
 router.register(r'suppliers', SupplierViewSet, basename='supplier')
 router.register(r'products', ProductViewSet, basename='product')
 router.register(r'supplies', SupplyViewSet, basename='supply')
+router.register(r'sales', SaleViewSet, basename='sale')
+
 
 urlpatterns = [
     path('admin/', admin.site.urls),

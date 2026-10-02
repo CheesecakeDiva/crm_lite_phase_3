@@ -33,7 +33,6 @@ class Storage(models.Model):
     def __str__(self):
         return f"{self.name} ({self.company.name})"
 
-
 class Supplier(models.Model):
     title = models.CharField(max_length=255, verbose_name="Название поставщика")
     INN = models.CharField(max_length=12, verbose_name="ИНН")
@@ -100,4 +99,35 @@ class SupplyProduct(models.Model):
     class Meta:
         verbose_name = "Товар в поставке"
         verbose_name_plural = "Товары в поставке"
+
+
+class Sale(models.Model):
+    buyer_name = models.CharField(max_length=255, verbose_name="Имя покупателя")
+    company = models.ForeignKey(
+        Company,
+        on_delete=models.CASCADE,
+        related_name="sales",
+        verbose_name="Компания"
+    )
+    sale_date = models.DateTimeField(verbose_name="Дата продажи")
+
+    class Meta:
+        verbose_name = "Продажа"
+        verbose_name_plural = "Продажи"
+
+    def __str__(self):
+        return f"Продажа №{self.id} для {self.buyer_name}"
+
+class ProductSale(models.Model):
+    sale = models.ForeignKey(Sale, on_delete=models.CASCADE, verbose_name="Продажа", related_name="product_sales")
+    product = models.ForeignKey(Product, on_delete=models.CASCADE, verbose_name="Товар")
+    quantity = models.IntegerField(verbose_name="Количество")
+
+    class Meta:
+        verbose_name = "Товар в продаже"
+        verbose_name_plural = "Товары в продаже"
+
+    def __str__(self):
+        return f"{self.product.title} x {self.quantity}"
+
 
