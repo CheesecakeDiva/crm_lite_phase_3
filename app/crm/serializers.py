@@ -153,27 +153,33 @@ class SaleCreateSerializer(serializers.ModelSerializer):
         if not user_company:
             raise serializers.ValidationError("Вы не привязаны ни к одной компании.")
 
-        verified_items = []
+        seen_products = set()
         for item in product_sales_data:
             product_id = item['product']
-            qty = item['quantity']
-
-            try:
-                product = Product.objects.get(id=product_id, storage__company=user_company)
-            except Product.DoesNotExist:
-                raise serializers.ValidationError(f"Товар с id {product_id} не найден или принадлежит чужой компании.")
-
-            if product.quantity < qty:
+            if product_id in seen_products:
                 raise serializers.ValidationError(
-                    f"Недостаточно товара '{product.title}' на складе. Доступно: {product.quantity}, запрошено: {qty}."
+                    f"Товар с id {product_id} указан в запросе несколько раз. Дубликаты запрещены."
                 )
-
-            verified_items.append((product, qty))
+            seen_products.add(product_id)
 
         with transaction.atomic():
             sale = Sale.objects.create(buyer_name=buyer_name, sale_date=sale_date, company=user_company)
 
-            for product, qty in verified_items:
+            for item in product_sales_data:
+                product_id = item['product']
+                qty = item['quantity']
+
+                try:
+                    product = Product.objects.select_for_update().get(id=product_id, storage__company=user_company)
+                except Product.DoesNotExist:
+                    raise serializers.ValidationError(
+                        f"Товар с id {product_id} не найден или принадлежит чужой компании.")
+
+                if product.quantity < qty:
+                    raise serializers.ValidationError(
+                        f"Недостаточно товара '{product.title}' на складе. Доступно: {product.quantity}, запрошено: {qty}."
+                    )
+
                 ProductSale.objects.create(sale=sale, product=product, quantity=qty)
 
                 product.quantity -= qty
